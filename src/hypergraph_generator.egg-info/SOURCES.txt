@@ -1,0 +1,5 @@
+setup.py
+src/hypergraph_generator.egg-info/PKG-INFO
+src/hypergraph_generator.egg-info/SOURCES.txt
+src/hypergraph_generator.egg-info/dependency_links.txt
+src/hypergraph_generator.egg-info/top_level.txt

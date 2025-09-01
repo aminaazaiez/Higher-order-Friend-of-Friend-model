@@ -1,0 +1,11 @@
+.venv/
+article/
+
+data/
+
+out/Figures/*
+out/simulations/*
+out/metrics/*
+out/graph_viz/*
+
+src/__pycache__/
