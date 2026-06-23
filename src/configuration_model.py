@@ -5,7 +5,6 @@ from tqdm.auto import tqdm
 
 def vertex_labeled_MH(
     edges,
-    mode = 'full',
     multiedges=True,
     n_steps=10000,
     burnin_steps=2000,
@@ -19,7 +18,7 @@ def vertex_labeled_MH(
         np.random.seed(seed)
 
     # build pbar description string
-    desc = f"mode={mode} │ multi={multiedges} │ sim={sim}"
+    desc = f"multi={multiedges} │ sim={sim}"
     pbar = tqdm(
         total=n_steps + burnin_steps,
         desc=desc,

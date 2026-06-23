@@ -5,6 +5,8 @@ import pandas as pd
 import joblib
 from tqdm import tqdm
 from functools import partial
+from collections import Counter
+
 
 from metrics import (avg_degree,
     std_degree,
@@ -14,7 +16,9 @@ from metrics import (avg_degree,
     assortativity,
     clustering_metrics,
     skewness,
-    median
+    median,
+    overlaps,
+    degree_count
     )
 
 
@@ -27,6 +31,11 @@ def _run_feature_funcs(H, feature_funcs, only_keep=None, run_funcs=None):
     items = feature_funcs.items() if run_funcs is None else ((n, feature_funcs[n]) for n in run_funcs)
     for name, func in items:
         res = func(H)
+
+        if isinstance(res, Counter):
+            if (only_keep is None) or (name in only_keep):
+                out[name] = dict(res)   # or out[name] = res (Counter) if you prefer
+            continue
         if isinstance(res, dict):
             if only_keep is None:
                 out.update(res)
@@ -73,8 +82,12 @@ def _discover_schema(directory, feature_funcs, multiedges, clean=True):
             func_to_keys[name] = {name}
             expected_cols.add(name)
             continue
+        
+        if isinstance(res, Counter):
+            func_to_keys[name] = {name}
+            expected_cols.add(name)
 
-        if isinstance(res, dict):
+        elif isinstance(res, dict):
             keys = set(res.keys())
             func_to_keys[name] = keys
             expected_cols |= keys
@@ -142,10 +155,12 @@ def compute_features_parallel(simulation_directory, feature_funcs, metrics_path,
 
 
     # Determine files and feature gaps
-    all_files = [f for f in os.listdir(simulation_directory) if f.endswith(".joblib")  ] #and any( e in f  for e in [f'seed-{i}.' for i in range(4)])]
+    all_files = [f for f in os.listdir(simulation_directory) if f.endswith(".joblib") 
+    and 'n-30000' in f 
+    #and any( e in f  for e in [f'seed-{i}.' for i in range(10)]) 
+    ]
     
-
-    
+   
     already_present = set(df_metrics.get("filename", []))
     missing_files = [f for f in all_files if f not in already_present]
 
@@ -169,14 +184,14 @@ def compute_features_parallel(simulation_directory, feature_funcs, metrics_path,
             
 
     files_with_gaps = df_metrics[df_metrics["filename"].isin(all_files)]
-    # Identify rows (files) with missing features or NaNs
-    needs_update_mask = files_with_gaps.apply(
-        lambda row: any(
-            (feature not in df_metrics.columns) or pd.isna(row.get(feature))
-            for feature in expected_cols
-        ),
-        axis=1
-    )
+    # Identify rows (files) with missing features or nans
+    needs_update_mask = pd.isna(files_with_gaps).apply(lambda row: any(
+	feature not in df_metrics.columns or row.get(feature)
+	for feature in expected_cols
+	),
+	axis = 1
+)
+    #needs_update_mask = pd.isna(files_with_gaps)
     needs_update = files_with_gaps[needs_update_mask]
 
     if not needs_update.empty:
@@ -195,7 +210,9 @@ def compute_features_parallel(simulation_directory, feature_funcs, metrics_path,
     return df_metrics
 
 
-model = 'polyadic_closure'
+model = 'ho_fof'
+# model = 'ho_fof_emp_village'
+
 
 multiedges = True
 simulation_directory = f"./out/simulations/{model}"
@@ -203,14 +220,17 @@ simulation_directory = f"./out/simulations/{model}"
 metrics_path = f"./out/metrics/{model}_metrics_multiedges_{multiedges}.json"
 
 feature_funcs = {
-    "avg_degree": avg_degree,
-    "std_degree": std_degree,
-    #"clustering": clustering_metrics,
+    # "avg_degree": avg_degree,
+    # "std_degree": std_degree,
+    "clustering": clustering_metrics,
     #"median": median,
-    "skewness": skewness
+    #"skewness": skewness,
     #"assortativity": assortativity
     #"clutering_coef": local_clustering_coefficient
+    "overlaps": overlaps,
+    "degree_count": degree_count
 }
+
 
 
 if __name__ == "__main__":

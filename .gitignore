@@ -1,4 +1,5 @@
 .venv/
+.vscode
 article/
 
 data/
@@ -9,3 +10,4 @@ out/metrics/*
 out/graph_viz/*
 
 src/__pycache__/
+ 

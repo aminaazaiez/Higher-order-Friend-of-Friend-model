@@ -4,10 +4,13 @@ import xgi
 import networkx as nx
 import itertools 
 from collections import Counter
+from itertools import combinations
+from tqdm import tqdm
+
 
 from sknetwork.data import from_edge_list
 from sknetwork.clustering import Louvain, get_modularity
-
+from bisect import bisect_right
 
 
 # Degree stats
@@ -57,6 +60,14 @@ def clustering_metrics(H: xgi.Hypergraph, **kwargs):
     nb_clusters = max(node_clusters)
     return {'modularity': mod, 'nb_clusters': nb_clusters}
 
+def overlaps(H, nb_edges: int = 5_000):
+    edges = [list(e) for e in H.edges.members()]  
+    np.random.shuffle(edges)
+    intersect = np.fromiter((len( set(e) & set(f)) for e, f in combinations(edges[:nb_edges], 2)) , dtype=int)
+    return Counter(intersect)
+
+def degree_count(H):
+    return Counter(H.degree().values())
 
 def modularity(H):   
     biadjacency_matrix, node_labels, node_clusters, edge_clusters = clustering(H)
@@ -180,3 +191,95 @@ def rich_club_normalized(G, n_surrogates=10, Q=10, seed=None):
         rc_norm[k] = emp / base   # or 1.0, or skip entirely
 
     return rc_norm, rc_emp, dict(zip(ks, rc_surr_mean))
+
+def rich_club(edge_list, degree_dict=None):
+    """
+
+    """
+    degree_dict = _compute_degrees(edge_list)
+
+    # Precompute min degrees for edges
+    min_degrees = [min(degree_dict[node] for node in edge) for edge in edge_list]
+    max_k = max(min_degrees)
+    sorted_min_degrees = sorted(min_degrees)
+
+    rc = {}
+
+    sorted_min_degrees = sorted(min_degrees)
+    for k in range(1, max_k):
+        # Binary search to find how many min_degrees are > k
+        
+        num_edges = len(min_degrees) - bisect_right(sorted_min_degrees, k)
+        sum_deg = sum(deg for deg in degree_dict.values() if deg > k) 
+        rc[k] = num_edges 
+        rc[k] = num_edges / sum_deg if sum_deg > 0 else 0.0
+
+    return rc
+
+
+def _restrict_m_hypergraph(X : xgi.Hypergraph, m: int, multiedges ):
+    ''' m : minimum size of hyperedge'''
+    if not multiedges:
+        X.merge_duplicate_edges()
+    e_remove = [edge for edge in X.edges if X.edges.size[edge] < m]
+    X.remove_edges_from(e_remove)
+    still_2_remove = len(e_remove) > 0
+    return(X, still_2_remove)
+
+def _restrict_k_hypergraph(X : xgi.Hypergraph, k: int, multiedges):
+    ''' k : minimum degree of nodes'''
+    if not multiedges:
+        X.merge_duplicate_edges()
+    n_remove = [node for node in X.degree().keys() if X.degree()[node]< k]
+    X.remove_nodes_from(n_remove)
+    still_2_remove = len(n_remove) > 0
+    return(X , still_2_remove)
+
+
+def core_decomposition(H : xgi.Hypergraph, multiedges) :
+    X = H.copy()
+    M = range(3 , max(X.edges.size.asnumpy()) + 1 ) # m = edge size
+    core = { m : {} for m in M }
+    core_e = { m : {} for m in M}
+
+    for m in tqdm(M): # loop for the m shells
+        # For each m, start with the initial hypergraph restricted to the edges of size >= m
+        k = 1
+        X = H.copy()
+        while X.num_nodes > 0 : # loop for the k,m shell
+            
+            X , still_edges_2_remove = _restrict_m_hypergraph(X, m, multiedges)
+            X , still_nodes_2_remove = _restrict_k_hypergraph(X, k, multiedges)
+            # Store previous shell to compute the k,m shell at the end of the loop
+
+            while  still_nodes_2_remove or still_edges_2_remove : # redo untill there are neither nodes nore edges that can be removed
+                if X.num_nodes > 0: # restrict to largest connect component 
+                    X = xgi.largest_connected_hypergraph(X)
+                X , still_nodes_2_remove = _restrict_m_hypergraph(X, m, multiedges)
+                X , still_edges_2_remove = _restrict_k_hypergraph(X, k, multiedges)
+
+            if X.num_nodes > 0 :
+                core[m][k] = [max(xgi.connected_components(X), key=len)]
+                # # if keep non connected parts
+                # core[m][k] = [list(component) for component in xgi.connected_components(X)]
+                core_e[m][k] = [list(X.edges)]
+                k += 1
+    return core, core_e
+
+def hypercoreness(core, g_m):
+    c_m = { node : {} for node in core[list(core.keys())[0]][1][0]}
+    for m in core.keys():
+        k_max = max(core[m].keys())
+        for k in core[m].keys():
+            if k != k_max :
+                k_m_shell = set.union(*core[m][k]) - set.union(*core[m][k+1])
+            else :
+                k_m_shell = set.union(*core[m][k])
+
+            for node in k_m_shell:
+                c_m[node][m] = k/k_max * g_m[m]
+
+
+    R_i = {node : sum( [ c_m[node][m] for m in c_m[node].keys() ] ) for node in c_m.keys()}
+
+    return(R_i)

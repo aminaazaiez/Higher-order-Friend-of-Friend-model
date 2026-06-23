@@ -4,6 +4,7 @@ import math
 import joblib
 import xgi
 import networkx as nx
+import pandas as pd
 
 import seaborn as sns
 import matplotlib as mpl
@@ -70,7 +71,7 @@ def plot_map_heatmap(
     # Set title
     g.fig.suptitle(feature)
 
-    g.fig.subplots_adjust(top=0.8)
+    # g.fig.subplots_adjust(top=0.8)
 
 
 
@@ -131,8 +132,8 @@ def iter_Ms( pair_cap=20, min_events=2, m_max=None):
 
 
 def clean_edges(edges):
-    edges = [list(e) for e in edges ]           # keep order within edges if you like
-    node_labels = {}
+    edges = [list(e) for e in edges ]     
+    node_labels = {}     # keep order within edges
     next_id = 0
     for e in edges:
         for node in e:
@@ -142,8 +143,6 @@ def clean_edges(edges):
 
     edges_relabeled = [{node_labels[node] for node in e} for e in edges]
     return edges_relabeled
-
-
 
 
 def get_param_from_emp(
@@ -191,16 +190,12 @@ def calibrate_from_emp(edges, n0, shuffle=True, seed=None):
 
     # recompute P_new starting at t0 (and with a "known old set" = nodes seen up to t0)
     old = set()
-    for e in _edges[:t0]:
-        old |= set(e)
-
     P_new = []
-    for e in _edges[t0:]:
+    for e in _edges: #[t0:]:
         new_nodes = set(e) - old
         P_new.append(len(new_nodes) / len(e))
         old |= new_nodes
-
-    return D[t0:], P_new, t0
+    return D[t0:], P_new[t0:], t0
     
 def rescale_pnew(D, P_new, n0, N_emp_final):
     target_add = N_emp_final - n0
@@ -208,3 +203,34 @@ def rescale_pnew(D, P_new, n0, N_emp_final):
     s = target_add / denom if denom > 0 else 1.0
     P_new_scaled = [min(1.0, s * p) for p in P_new]
     return P_new_scaled, s
+
+def kl_divergence(p, q):
+    """
+    Compute the Kullback-Leibler divergence between two discrete probability distributions p and q.
+
+    Parameters
+    ----------
+    p : array_like
+        The first discrete probability distribution.
+    q : array_like
+        The second discrete probability distribution.
+
+    Returns
+    -------
+    kl : float
+        The Kullback-Leibler divergence between p and q.
+    """
+    length = max(len(p), len(q))
+    p = np.pad(p, (0, length - len(p)))
+    q = np.pad(q, (0, length - len(q)))
+
+    # Normalization
+    p = np.array(p) / np.sum(p) if np.sum(p) > 0 else np.zeros_like(p)
+    q = np.array(q) / np.sum(q) if np.sum(q) > 0 else np.zeros_like(q)
+
+    # Avoid log(0)
+    mask = (p > 0) & (q > 0)
+    p_masked = p[mask]
+    q_masked = q[mask]
+
+    return np.sum(p_masked * np.log(p_masked / q_masked))

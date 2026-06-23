@@ -1,0 +1,11 @@
+- Try to make one general model, where the two models are specific cases of the former. Maybe focus on the edge fomation phase.
+- Study 4 features numerically, analytically, and compare with empirical data
+	- degree distribution
+	- edge overlaps
+	- rich club
+	- communities
+	
+	
+	
+	
+

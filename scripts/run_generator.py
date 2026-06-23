@@ -6,17 +6,17 @@ import os
 from utils import iter_Ms
 
 from generator import (preferential_attachment,
-                    random_overlaps_pref,
-                    triadic_closure,
-                    polyadic_closure_2,
-                    temporal_triadic_closure,
-                    temporal_polyadic_closure)
+                    node_addition_ho_fof,
+                    node_addition_ho_fof_resampled_T,
+                    edge_addition_ho_fof)
+
+from utils import get_param_from_emp, calibrate_from_emp, rescale_pnew, clean_edges
 
 # Save simulation
 def param_to_filename(directory, param_dict):
     def fmt(val):
         return f"{val:.3f}" if isinstance(val, float)  else str(val)
-    filename = "_".join(f"{key}-{fmt(val)}" for key, val in param_dict.items())
+    filename = "_".join(f"{key}-{fmt(val)}" for key, val in param_dict.items() if type(val) is not list)
     return os.path.join(directory, f'{filename}.joblib')
 
 def save_to_joblib(H, param, directory):
@@ -27,7 +27,8 @@ def save_to_joblib(H, param, directory):
 def run_and_save(model, param_model, directory):
     filename = param_to_filename(directory, param_model)
     if os.path.exists(filename):
-        return filename
+        return ' '
+    # print (f'{filename} doesn t exisit')
     H = model(**param_model)
     save_to_joblib(H, param_model, directory)
     return filename
@@ -36,49 +37,93 @@ def wrapper(args):
     return run_and_save(*args)
 
 
-MODEL = 'polyadic_closure'
+MODEL = 'ho_fof_resampled_T'
+dataset = 'village'
 
-# if MODEL ==  'preferential_attachement':
-#     ps = np.linspace(0,1, 5)
-#     k_0 = 1
-#     n_0 = 100
-#     params = [{'M': 100, 'p_new': p_new, 'k_0': k_0, 'n_0': n_0}
-#                 for p_new in ps 
-#                 ]
-#     directory = './out/simulations/preferential'
-#     arg = [(preferential_attachment, param, directory) for param in params ]
+if MODEL ==  'preferential_emp':
+    # Load empirical hypegraph
+    edges_emp = joblib.load(f'./data/edges_{dataset}.joblib')
+    params = []
+    nb_itt = 100
+    for seed in range(nb_itt):
+        np.random.seed(seed)
+        np.random.shuffle(edges_emp)
+        edges_emp = clean_edges(edges_emp)
+        # Get paramaters from emprical hypergraph
+        n0 = max(len(edge) for edge in edges_emp)
+        
+        D, P_new, t0 =  calibrate_from_emp(edges_emp, n0, shuffle = False, seed = seed)
 
-# elif MODEL == 'random_overlaps_pref':
-#     M = 500 # Number of edges 
-#     p_new = 0.7
-#     alphas = np.linspace(0,1, 5)
-#     betas_neigh = np.linspace(0,1, 3)
-#     betas_remaining = np.linspace(0,1, 3)
-#     params = [{'M': M, 'alpha': alpha, 'beta_neigh': beta_neigh, 'beta_remaining': beta_remaining, 'p_new': p_new}
-#                 for alpha in alphas 
-#                 for beta_neigh in betas_neigh 
-#                 for beta_remaining in betas_remaining 
-#                 ]
-#     directory = './out/simulations/pref_overlaps/'
-#     arg = [(random_overlaps_pref, param, directory) for param in params ]
+        params.append({'D':D, 'P_new':P_new, 'n0':n0, 'seed': seed})
 
-if MODEL == 'triadic_closure':
-    ns = [ 10_000]   # number of nodes/steps
-    ms = np.arange(2,10)
-    ps = np.linspace(0.1,0.9,5)
+    directory = f'./out/simulations/{MODEL}_{dataset}'
+    args = [(preferential_attachment, param, directory) for param in params ]
+    
+
+if MODEL == 'ho_fof_emp':
+    # Load empirical hypegraph
+    edges_emp = joblib.load(f'./data/edges_{dataset}.joblib')
+    params = []
+    ps =[0,0.1,0.3,0.5,0.7, 0.9,1]
+    nb_itt = 100
+    
+    for seed in range(nb_itt):
+        #np.random.seed(seed)
+        np.random.shuffle(edges_emp)
+        edges_emp = clean_edges(edges_emp)
+
+        # Get paramaters from emprical hypergraph
+        n0 = max(len(edge) for edge in edges_emp)
+        
+        D, P_new, t0 =  calibrate_from_emp(edges_emp, n0, shuffle = False, seed = seed)
+
+        params.extend([{'p':p, 'D':D, 'P_new':P_new, 'n0':n0, 'seed': seed} for p in ps])
+
+
+    directory = f'./out/simulations/{MODEL}_{dataset}'
+    args = [(edge_addition_ho_fof, param, directory) for param in params ]
+
+
+
+if MODEL == 'ho_fof':
+    ns = [100_000]   # number of nodes/steps
+
+
+    # pair_cap = 15
+    # min_events =2
+    # Ms = list(iter_Ms(pair_cap=pair_cap, min_events=min_events))
+
+    # nps = 5
+    # x = np.linspace(0, 1.3, nps, endpoint = False)
+    # ps = 1 - 10**(-1.5* x) 
+    
+    ps =[0,0.1,0.3,0.5,0.7,0.9,]
+    
+    Ms = [{2:1},{3:1},{4:1}]
+    multiedges = [True]
+    #n0s = np.linspace(20,1000,15, dtype = int)
+    n0s = [20]
+    H0s = ['random']
     params = [{'n' : n,
-        'm': m, 
-        'p': p, 
+        'M': M, 
+        'p': p,
+        'n0': n0,
+        'multiedges': value,
         'seed':seed  }
                 for n in ns
                 for p in ps
-                for m in ms
-                for seed in range(20)
+                for M in Ms
+                for n0 in n0s
+                for H0 in H0s
+                for value in multiedges
+                for seed in range(100)
             ]
-    directory = './out/simulations/triadic_closure/'
-    args = [(triadic_closure, param, directory) for param in params ]
 
-if MODEL == 'polyadic_closure':
+    directory = f'./out/simulations/{MODEL}'
+    args = [(node_addition_ho_fof, param, directory) for param in params ]
+
+
+if MODEL == 'ho_fof_resampled_T':
     ns = [30_000]   # number of nodes/steps
 
     pair_cap = 15
@@ -88,8 +133,7 @@ if MODEL == 'polyadic_closure':
     nps = 5
     x = np.linspace(0, 1.3, nps, endpoint = False)
     ps = 1 - 10**(-1.5* x) 
-    
-    
+       
     multiedges = [True]
     #n0s = np.linspace(20,1000,15, dtype = int)
     n0s = [20]
@@ -98,7 +142,6 @@ if MODEL == 'polyadic_closure':
         'M': M, 
         'p': p,
         'n0': n0,
-        'H0': H0,
         'multiedges': value,
         'seed':seed  }
                 for n in ns
@@ -107,45 +150,16 @@ if MODEL == 'polyadic_closure':
                 for n0 in n0s
                 for H0 in H0s
                 for value in multiedges
-                for seed in range(50)
+                for seed in range(30)
             ]
 
-    directory = './out/simulations/polyadic_closure/'
-    args = [(polyadic_closure_2, param, directory) for param in params ]
-
-# elif MODEL == 'temporal_triadic_closure':
-#     M = 200
-#     N = 100
-#     etas = np.linspace(0,1,3)
-#     ls = np.linspace(0,1,3)
-#     xis = np.linspace(0,1,3)
-#     params = [{'N': N, 'M': M, 'eta': eta, 'l': l, 'xi': xi }
-#                 for eta in etas
-#                 for l in ls
-#                 for xi in xis 
-#                 ]
-
-#     directory = './out/simulations/temporal_triadic_closure/'
-#     arg = [(temporal_triadic_closure, param, directory) for param in params ]
-
-# elif MODEL == 'temporal_polyadic_closure':
-#     M = 100
-#     N = 100
-#     mus = np.linspace(100,2000,3).astype(int)
-#     prs = np.logspace(-3,0,4)
-#     pns = np.logspace(-3,0,4)
-#     ds = np.arange(2,5)
-#     params = [{'N': N, 'M': M, 'mu': mu, 'p_r': pr, 'p_n': pn, 'd': d }
-#                 for mu in mus
-#                 for pr in prs
-#                 for pn in pns
-#                 for d in ds 
-#                 ]
-#     directory = './out/simulations/temporal_polyadic_closure/'
-#     arg = [(temporal_polyadic_closure, param, directory) for param in params ]
+    directory = f'./out/simulations/{MODEL}'
+    args = [(node_addition_ho_fof_resampled_T, param, directory) for param in params ]
 
 
 if __name__ == "__main__":
-    with mp.Pool() as pool:
+    procs = mp.cpu_count()
+    with mp.Pool(processes= procs) as pool:
         for i, result in enumerate(pool.imap_unordered(wrapper, args), 1):
             print(f"[{i}/{len(args)}] Saved: {os.path.basename(result)}")
+
